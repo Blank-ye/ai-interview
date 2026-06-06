@@ -1,0 +1,27 @@
+interview:
+  datasource:
+    host: 192.168.153.133
+    username: root
+    password: 123456
+  redis:
+    host: 192.168.153.133
+  rabbitmq:
+    host: 192.168.153.133
+    port: 5672
+    username: guest
+    password: gust
+  qdrant:
+    host: 192.168.153.133
+    port: 6334  # gRPC端口是6334，不是6333
+  jwt:
+    secret: mySecretKeyForJWTTokenGeneration2026!
+ai:
+  dashscope:
+    api-key: sk-78d838ef6d9f4007905ee33bfa66d17b
+
+spring:
+  security:
+    user:
+      name: admin
+      password: admin
+

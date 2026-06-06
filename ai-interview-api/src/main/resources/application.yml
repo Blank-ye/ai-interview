@@ -1,0 +1,61 @@
+server:
+  port: 8080
+
+spring:
+  profiles:
+    active: dev
+  datasource:
+    url: jdbc:mysql://${interview.datasource.host}:3306/ai_interview?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8
+    username: ${interview.datasource.username}
+    password: ${interview.datasource.password}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+
+  data:
+    redis:
+      host: ${interview.redis.host}
+      port: 6379
+      password: ${REDIS_PASSWORD:}
+      database: 0
+
+  rabbitmq:
+    host: ${interview.rabbitmq.host}
+    port: ${interview.rabbitmq.port}
+    username: ${interview.rabbitmq.username}
+    password: ${interview.rabbitmq.password}
+
+  ai:
+    dashscope:
+      api-key: ${ai.dashscope.api-key}
+      chat:
+        options:
+          model: qwen-plus
+          temperature: 0.7
+
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.interview.dao.entity
+  configuration:
+    map-underscore-to-camel-case: true
+
+  # Qdrant配置
+qdrant:
+  host: ${interview.qdrant.host}
+  port: ${interview.qdrant.port}
+  collection: ${interview.qdrant.collection}
+  resumes: resumes
+  jobs: jobs
+
+  # JWT配置
+jwt:
+  secret: ${interview.jwt.secret}
+  expiration: 86400000
+
+logging:
+  level:
+    com.interview: debug
