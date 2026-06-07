@@ -1,7 +1,7 @@
 package com.interview.api.config;
 
 import com.interview.dao.repository.VectorRepository;
-import com.interview.service.job.JobService;
+import com.interview.service.crawler.JobCrawlerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
  * Qdrant初始化配置
  * 应用启动时：
  * 1. 创建所需的集合
- * 2. 将已有职位数据向量化
+ * 2. 从RAG文档加载职位数据到Qdrant
  */
 @Slf4j
 @Component
@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
 public class QdrantInitConfig implements CommandLineRunner {
 
     private final VectorRepository vectorRepository;
-    private final JobService jobService;
+    private final JobCrawlerService jobCrawlerService;
 
     // 向量维度，根据使用的Embedding模型调整
     private static final int VECTOR_SIZE = 1536;
@@ -31,9 +31,9 @@ public class QdrantInitConfig implements CommandLineRunner {
         vectorRepository.createCollectionIfNotExists("jobs", VECTOR_SIZE);
         log.info("Qdrant集合初始化完成");
 
-        // 向量化已有职位数据
-        log.info("开始向量化已有职位数据...");
-        jobService.vectorizeAllJobs();
-        log.info("职位数据向量化完成");
+        // 从RAG加载职位数据到Qdrant
+        log.info("从RAG加载职位数据...");
+        jobCrawlerService.loadRagToQdrant();
+        log.info("职位数据加载完成");
     }
 }

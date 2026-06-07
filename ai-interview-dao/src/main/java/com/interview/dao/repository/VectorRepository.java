@@ -136,4 +136,17 @@ public class VectorRepository {
             throw new RuntimeException("删除向量失败", e);
         }
     }
+
+    /**
+     * 删除集合
+     */
+    public void deleteCollection(String collectionName) {
+        try {
+            qdrantClient.deleteCollectionAsync(collectionName).get();
+            log.info("删除Qdrant集合：{}", collectionName);
+        } catch (Exception e) {
+            log.error("删除集合失败：{}", collectionName, e);
+            throw new RuntimeException("删除集合失败", e);
+        }
+    }
 }

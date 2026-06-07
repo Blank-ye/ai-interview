@@ -1,39 +1,36 @@
 package com.interview.service.match;
 
-import com.interview.dao.entity.Job;
 import com.interview.dao.entity.Resume;
-import com.interview.dao.mapper.JobMapper;
 import com.interview.dao.mapper.ResumeMapper;
 import com.interview.dao.repository.VectorRepository;
+import com.interview.service.crawler.JobData;
+import com.interview.service.crawler.RagStorage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 职位匹配服务
- * 基于向量相似度匹配简历和职位：
- * 1. 将简历/职位文本向量化
- * 2. 存储到Qdrant
- * 3. 搜索最相似的职位/简历
+ * 从Qdrant检索相似职位，从RAG文档获取详情
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class JobMatchService {
 
-    private final JobMapper jobMapper;
     private final ResumeMapper resumeMapper;
     private final VectorRepository vectorRepository;
     private final EmbeddingModel embeddingModel;
+    private final RagStorage ragStorage;
 
     private static final String JOB_COLLECTION = "jobs";
 
     /**
-     * 匹配职位
+     * 匹配职位（返回RAG中的职位数据）
      */
     public List<JobMatchResult> matchJobs(Long resumeId, int limit) {
         Resume resume = resumeMapper.selectById(resumeId);
@@ -43,24 +40,40 @@ public class JobMatchService {
 
         // 1. 向量化简历内容
         float[] embedding = embeddingModel.embed(resume.getRawContent());
-        List<Float> vector= new ArrayList<>(embedding.length);
-        for(float v:embedding){
+        List<Float> vector = new ArrayList<>(embedding.length);
+        for (float v : embedding) {
             vector.add(v);
         }
 
-        // 2. 搜索相似职位
+        // 2. 从Qdrant搜索相似职位
         var results = vectorRepository.searchSimilar(JOB_COLLECTION, vector, limit);
 
-        // 3. 构建匹配结果
+        // 3. 提取jobId列表
+        List<String> jobIds = new ArrayList<>();
+        for (var point : results) {
+            String jobId = point.getPayloadMap().get("jobId").getStringValue();
+            jobIds.add(jobId);
+        }
+
+        // 4. 从RAG文档获取职位详情
+        List<JobData> jobs = ragStorage.getByIds(jobIds);
+
+        // 5. 构建匹配结果
         List<JobMatchResult> matchResults = new ArrayList<>();
         for (var point : results) {
-            Long jobId = point.getPayloadMap().get("jobId").getIntegerValue();
-            Job job = jobMapper.selectById(jobId);
+            String jobId = point.getPayloadMap().get("jobId").getStringValue();
+            JobData job = jobs.stream()
+                    .filter(j -> j.getJobId().equals(jobId))
+                    .findFirst()
+                    .orElse(null);
+
             if (job != null) {
                 matchResults.add(JobMatchResult.builder()
-                        .jobId(jobId)
+                        .jobId(job.getJobId())
                         .jobTitle(job.getTitle())
                         .company(job.getCompany())
+                        .salary(job.getSalary())
+                        .skills(job.getSkills())
                         .score((double) point.getScore())
                         .build());
             }
@@ -70,59 +83,16 @@ public class JobMatchService {
     }
 
     /**
-     * 索引职位
+     * 匹配结果
      */
-    public void indexJob(Long jobId) {
-        Job job = jobMapper.selectById(jobId);
-        if (job == null) {
-            return;
-        }
-
-        // 构建职位文本
-        String text = buildJobText(job);
-
-        // 向量化
-        float[] embedding = embeddingModel.embed(text);
-
-        List<Float> vector= new ArrayList<>(embedding.length);
-        for(float v:embedding){
-            vector.add(v);
-        }
-
-        // 存储到Qdrant
-        Map<String, io.qdrant.client.grpc.JsonWithInt.Value> payload = new java.util.HashMap<>();
-        payload.put("jobId", io.qdrant.client.grpc.JsonWithInt.Value.newBuilder()
-                .setIntegerValue(jobId)
-                .build());
-
-        String vectorId = vectorRepository.storeVector(JOB_COLLECTION, vector, payload);
-
-        // 更新职位向量ID
-        job.setVectorId(vectorId);
-        jobMapper.updateById(job);
-    }
-
-    private String buildJobText(Job job) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(job.getTitle()).append(" ");
-        if (job.getDescription() != null) {
-            sb.append(job.getDescription()).append(" ");
-        }
-        if (job.getRequirements() != null) {
-            sb.append(job.getRequirements()).append(" ");
-        }
-        if (job.getSkills() != null) {
-            sb.append(job.getSkills());
-        }
-        return sb.toString();
-    }
-
     @lombok.Data
     @lombok.Builder
     public static class JobMatchResult {
-        private Long jobId;
+        private String jobId;
         private String jobTitle;
         private String company;
+        private String salary;
+        private List<String> skills;
         private Double score;
     }
 }

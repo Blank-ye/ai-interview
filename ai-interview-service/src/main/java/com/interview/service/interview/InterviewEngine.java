@@ -6,8 +6,13 @@ import com.interview.dao.entity.Resume;
 import com.interview.dao.mapper.AnswerMapper;
 import com.interview.dao.mapper.InterviewMapper;
 import com.interview.dao.mapper.QuestionMapper;
+import com.interview.dao.mapper.ResumeMapper;
+import com.interview.service.agent.AgentAction;
+import com.interview.service.agent.InterviewAgent;
 import com.interview.service.ai.AiClientService;
 import com.interview.service.ai.PromptTemplate;
+import com.interview.service.crawler.JobData;
+import com.interview.service.crawler.RagStorage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -32,11 +37,14 @@ public class InterviewEngine {
     private final InterviewMapper interviewMapper;
     private final QuestionMapper questionMapper;
     private final AnswerMapper answerMapper;
+    private final ResumeMapper resumeMapper;
     private final QuestionGenerator questionGenerator;
     private final FollowUpJudge followUpJudge;
     private final ScoringService scoringService;
     private final AiClientService aiClientService;
     private final PromptTemplate promptTemplate;
+    private final InterviewAgent agent;
+    private final RagStorage ragStorage;
 
     // 面试上下文缓存
     private final Map<Long, InterviewContext> contextCache = new ConcurrentHashMap<>();
@@ -71,6 +79,11 @@ public class InterviewEngine {
                 .build();
         contextCache.put(interview.getId(), context);
 
+        // 初始化Agent状态
+        Resume resume = resumeMapper.selectById(resumeId);
+        JobData job = ragStorage.getByIds(List.of(String.valueOf(jobId))).stream().findFirst().orElse(null);
+        agent.initState(interview.getId(), resume, job);
+
         log.info("面试创建成功，interviewId: {}, 题目数量: {}", interview.getId(), questions.size());
         return interview;
     }
@@ -87,7 +100,7 @@ public class InterviewEngine {
     }
 
     /**
-     * 处理回答
+     * 处理回答（Agent决策模式）
      */
     public InterviewMessage handleAnswer(Long interviewId, String answer) {
         InterviewContext context = contextCache.get(interviewId);
@@ -103,20 +116,47 @@ public class InterviewEngine {
         // 2. 保存回答
         answerMapper.insert(scoringService.buildAnswer(currentQuestion, answer, eval));
 
-        // 3. 判断是否追问
-        if (followUpJudge.shouldFollowUp(eval) && context.getFollowUpCount() < 2) {
-            String followUp = followUpJudge.generateFollowUp(currentQuestion, answer, eval);
-            context.incrementFollowUpCount();
-            return InterviewMessage.followUp(followUp);
-        }
+        // 3. Agent决策下一步动作
+        AgentAction action = agent.decide(interviewId, currentQuestion, answer, eval);
 
-        // 4. 进入下一题或结束
-        context.resetFollowUpCount();
-        if (context.hasMoreQuestions()) {
-            context.nextQuestion();
-            return InterviewMessage.nextQuestion(context.getCurrentQuestion());
-        } else {
-            return finishInterview(interviewId, context);
+        // 4. 根据Agent决策执行
+        switch (action.getType()) {
+            case FOLLOW_UP:
+                context.incrementFollowUpCount();
+                return InterviewMessage.followUp(action.getContent());
+
+            case DEEP_DIVE:
+                // 深入某个方向，生成新问题
+                Question deepQuestion = new Question();
+                deepQuestion.setContent(action.getContent());
+                deepQuestion.setType(4); // 追问类型
+                deepQuestion.setInterviewId(interviewId);
+                questionMapper.insert(deepQuestion);
+                return InterviewMessage.followUp(action.getContent());
+
+            case SWITCH_TOPIC:
+                // 切换话题，进入下一题
+                context.resetFollowUpCount();
+                if (context.hasMoreQuestions()) {
+                    context.nextQuestion();
+                    return InterviewMessage.nextQuestion(context.getCurrentQuestion());
+                } else {
+                    return finishInterview(interviewId, context);
+                }
+
+            case END_INTERVIEW:
+                return finishInterview(interviewId, context);
+
+            case ASK_QUESTION:
+            default:
+                // 提问下一题
+                context.resetFollowUpCount();
+                if (context.hasMoreQuestions()) {
+                    context.nextQuestion();
+                    return InterviewMessage.nextQuestion(context.getCurrentQuestion());
+                } else {
+                    return finishInterview(interviewId, context);
+                }
         }
     }
 

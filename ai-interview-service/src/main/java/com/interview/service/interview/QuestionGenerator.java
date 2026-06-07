@@ -2,13 +2,13 @@ package com.interview.service.interview;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.interview.dao.entity.Job;
 import com.interview.dao.entity.Question;
 import com.interview.dao.entity.Resume;
-import com.interview.dao.mapper.JobMapper;
 import com.interview.dao.mapper.ResumeMapper;
 import com.interview.service.ai.AiClientService;
 import com.interview.service.ai.PromptTemplate;
+import com.interview.service.crawler.JobData;
+import com.interview.service.crawler.RagStorage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -32,7 +32,7 @@ public class QuestionGenerator {
     private final AiClientService aiClientService;
     private final PromptTemplate promptTemplate;
     private final ResumeMapper resumeMapper;
-    private final JobMapper jobMapper;
+    private final RagStorage ragStorage;
     private final ObjectMapper objectMapper;
 
     /**
@@ -40,7 +40,7 @@ public class QuestionGenerator {
      */
     public List<Question> generate(Long resumeId, Long jobId) {
         Resume resume = resumeMapper.selectById(resumeId);
-        Job job = jobMapper.selectById(jobId);
+        JobData job = ragStorage.getByIds(List.of(String.valueOf(jobId))).stream().findFirst().orElse(null);
 
         List<Question> questions = new ArrayList<>();
 
@@ -104,7 +104,7 @@ public class QuestionGenerator {
     /**
      * 生成场景题
      */
-    private List<Question> generateScenarioQuestions(Job job) {
+    private List<Question> generateScenarioQuestions(JobData job) {
         try {
             String prompt = promptTemplate.buildScenarioQuestionPrompt(job.getRequirements());
             String response = aiClientService.chat(prompt);
